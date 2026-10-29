@@ -37,8 +37,9 @@ function activity(value: unknown): value is Activity {
     && date(value.at);
 }
 
-function request(value: unknown): value is SupportRequest {
+export function isSupportRequest(value: unknown): value is SupportRequest {
   if (!record(value)
+    || (value.version !== undefined && (!Number.isSafeInteger(value.version) || (value.version as number) < 1))
     || !string(value.id, 1, 150)
     || !string(value.title, 3, 120)
     || !string(value.customer, 2, 80)
@@ -66,8 +67,8 @@ function request(value: unknown): value is SupportRequest {
     && (index === 0 || Date.parse(event.at) >= Date.parse(events[index - 1].at)));
 }
 
-function requests(value: unknown): value is SupportRequest[] {
-  return Array.isArray(value) && value.every(request)
+export function isSupportRequestList(value: unknown): value is SupportRequest[] {
+  return Array.isArray(value) && value.every(isSupportRequest)
     && new Set(value.map((item) => item.id)).size === value.length;
 }
 
@@ -84,7 +85,7 @@ export function loadRequests(storage: Pick<Storage, 'getItem'>): Loaded {
   if (raw === null) return { kind: 'empty', requests: [] };
   try {
     const envelope: unknown = JSON.parse(raw);
-    if (record(envelope) && envelope.version === 1 && requests(envelope.requests)) {
+    if (record(envelope) && envelope.version === 1 && isSupportRequestList(envelope.requests)) {
       return { kind: 'ready', requests: envelope.requests };
     }
   } catch {
@@ -100,7 +101,7 @@ export function saveRequests(
   storage: Pick<Storage, 'setItem'>,
   value: readonly SupportRequest[],
 ): void {
-  if (!requests(value)) throw new Error('No se guardaron los cambios: la solicitud contiene datos no válidos.');
+  if (!isSupportRequestList(value)) throw new Error('No se guardaron los cambios: la solicitud contiene datos no válidos.');
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, requests: value }));
   } catch {

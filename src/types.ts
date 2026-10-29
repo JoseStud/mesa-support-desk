@@ -10,6 +10,8 @@ export interface Activity {
 }
 
 export interface SupportRequest {
+  /** Present only for server-backed optimistic concurrency. */
+  version?: number;
   id: string;
   title: string;
   description: string;

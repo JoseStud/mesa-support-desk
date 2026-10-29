@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "method": "Stopped and restarted independent uvicorn processes using the same temporary SQLite file",
+  "request_version": 4,
+  "restored_fields": "All request fields, resolution and activity exactly matched",
+  "synthetic_data_only": true
+}

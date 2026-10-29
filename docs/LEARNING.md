@@ -2,7 +2,7 @@
 
 **José's practice remains unconfirmed.** This worksheet is optional learning alongside an implemented browser application, not a list of unfinished software features. The goal is to make two small changes, check them, and explain the relevant behavior. Software verification has its own [record](VALIDATION.md).
 
-The interface is in Spanish. Release A stores synthetic requests in this browser; it has no API or cloud backend.
+The interface is in Spanish. The default browser mode stores synthetic requests in this browser. The optional v0.3 API extension uses local FastAPI + SQLite; its setup and current verification status are in [API.md](API.md). Neither mode establishes a cloud deployment. Start the browser exercises below with `npm run dev` so their storage examples match the selected mode.
 
 ## 1. Run and trace the app — 5 minutes
 
@@ -84,3 +84,15 @@ If the exercises take longer, continue in another short session. A time estimate
 ## Practice evidence to retain
 
 Record your changes, results and remaining questions in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md). Keep one before/after screenshot and the relevant diff or commit. The existing [change requests](CHANGE_REQUESTS.md) describe software changes implemented by Codex; record your optional practice separately when performed.
+
+## Optional API trace after the browser exercises
+
+Start the backend and explicitly select API mode using [API.md](API.md). API integration checks are separate from the dated browser results; do not record a passing check until it actually runs.
+
+1. Create a synthetic request and find its HTTP POST in the browser Network panel. Compare the submitted fields with the response's identity, history and positive `version`.
+2. Add a comment using the current version, then explain why the server must validate the operation again even when TypeScript validated the form.
+3. Use two clients to read the same request. Save one change, then submit the older version from the other client. Explain HTTP 409, preserved draft text and review before retrying.
+4. Restart the backend with the same database path and inspect the saved request. Compare this with browser storage belonging to one origin.
+5. Stop the API and attempt a save. Explain the visible failure and why the frontend must not silently create a different localStorage copy.
+
+Read the [FastAPI and SQLite study guide](API_STUDY.md) for worked explanations. Record only the steps you personally performed; this worksheet does not mark them complete.

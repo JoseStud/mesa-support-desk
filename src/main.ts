@@ -5,6 +5,10 @@ import type { Category, CreateInput, Priority, RequestFilters, RequestStatus, Su
 import { addComment, changePriority, createRequest, filterRequests, getStats, isOverdue, responseDueAt, transitionRequest } from './domain';
 import { createSeedRequests } from './seed';
 import { loadRequests, saveRequests, STORAGE_KEY } from './storage';
+import { ApiError, createApiRepository } from './api';
+
+const apiMode = import.meta.env.VITE_MESA_STORAGE === 'api';
+const api = apiMode ? createApiRepository() : null;
 
 const statusLabels: Record<RequestStatus, string> = { new: 'Nueva', in_progress: 'En curso', resolved: 'Resuelta' };
 const priorityLabels: Record<Priority, string> = { low: 'Baja', normal: 'Normal', urgent: 'Urgente' };
@@ -23,6 +27,12 @@ let selectedId: string | null = null;
 let page = 1;
 let saving = false;
 let createSubmitted = false;
+let loading = false;
+let apiReadFailed = apiMode;
+let uncertainCommand = false;
+let createAttempt: { fingerprint: string; key: string; uncertain: boolean; reviewed: boolean } | null = null;
+type DetailDraft = { resolution?: string; comment?: string };
+const detailDrafts = new Map<string, DetailDraft>();
 const pageSize = 6;
 const defaultFilters: RequestFilters = { query: '', status: 'all', priority: 'all', category: 'all', sort: 'newest', openOnly: false, overdueOnly: false };
 const filters: RequestFilters = { ...defaultFilters };
@@ -34,6 +44,7 @@ function deadlineBadge(request: SupportRequest, now = new Date().toISOString()):
   return `<span class="deadline-label ${overdue ? 'overdue' : ''}" title="Plazo orientativo: ${timeFormat.format(due)}">${icon(overdue ? 'exclamation-circle' : 'clock')} ${overdue ? 'Vencida' : `Hasta ${timeFormat.format(due)}`}</span>`;
 }
 
+if (!apiMode) {
 try {
   const loaded = loadRequests(window.localStorage);
   if (loaded.kind === 'ready') requests = loaded.requests;
@@ -50,6 +61,7 @@ try {
   requests = createSeedRequests();
   storageWarning = 'El almacenamiento de este navegador no está disponible. Puedes explorar la demostración; los cambios solo se aplicarán si podemos guardarlos.';
 }
+}
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <a class="visually-hidden-focusable skip-link" href="#workspace">Saltar a las solicitudes</a>
@@ -59,10 +71,10 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="sidebar-workspace"><span class="workspace-monogram">M</span><div><strong>Mi espacio</strong><small>Servicio al cliente</small></div>${icon('chevron-expand')}</div>
       <div class="section-caption sidebar-caption">ESPACIO DE TRABAJO</div>
       <nav class="sidebar-nav"><button class="nav-item-link active" id="nav-all">${icon('inbox')}<span>Solicitudes</span><span class="nav-counter" id="nav-count"></span></button><button class="nav-item-link" id="nav-progress">${icon('hourglass-split')}<span>En curso</span></button><button class="nav-item-link" id="nav-resolved">${icon('check2-circle')}<span>Resueltas</span></button></nav>
-      <div class="sidebar-footer"><div class="sidebar-tip">${icon('lightbulb')}<strong>Un paso a la vez.</strong><p>Cada solicitud resuelta es una persona que puede seguir adelante.</p></div><button class="nav-item-link" data-bs-toggle="modal" data-bs-target="#help-modal">${icon('question-circle')}<span>Cómo usar Mesa</span></button><button class="nav-item-link" data-bs-toggle="modal" data-bs-target="#reset-modal">${icon('arrow-counterclockwise')}<span>Restablecer demo</span></button><div class="agent-profile"><span class="agent-avatar">AG</span><div><strong>Agente de soporte</strong><small>Espacio personal</small></div></div></div>
+      <div class="sidebar-footer"><div class="sidebar-tip">${icon('lightbulb')}<strong>Un paso a la vez.</strong><p>Cada solicitud resuelta es una persona que puede seguir adelante.</p></div><button class="nav-item-link" data-bs-toggle="modal" data-bs-target="#help-modal">${icon('question-circle')}<span>Cómo usar Mesa</span></button><button class="nav-item-link" ${apiMode ? 'hidden disabled' : ''} data-bs-toggle="modal" data-bs-target="#reset-modal">${icon('arrow-counterclockwise')}<span>Restablecer demo</span></button><div class="agent-profile"><span class="agent-avatar">AG</span><div><strong>Agente de soporte</strong><small>Espacio personal</small></div></div></div>
     </aside>
     <div class="main-panel">
-      <header class="topbar"><div class="breadcrumb-line">Espacio de trabajo <span>/</span> <strong>Solicitudes</strong></div><div class="topbar-actions"><span class="save-status" id="save-status">${icon('check2-circle')} En este dispositivo</span><button class="btn btn-icon" aria-label="Ayuda" data-bs-toggle="modal" data-bs-target="#help-modal">${icon('question-circle')}</button><span class="agent-avatar small-avatar" aria-label="Agente">AG</span></div></header>
+      <header class="topbar"><div class="breadcrumb-line">Espacio de trabajo <span>/</span> <strong>Solicitudes</strong></div><div class="topbar-actions"><span class="save-status" id="save-status">${icon('check2-circle')} ${apiMode ? 'Servidor' : 'En este dispositivo'}</span>${apiMode ? `<button class="btn btn-sm btn-outline-secondary" id="refresh-requests">${icon('arrow-clockwise')} Actualizar</button>` : ''}<button class="btn btn-icon" aria-label="Ayuda" data-bs-toggle="modal" data-bs-target="#help-modal">${icon('question-circle')}</button><span class="agent-avatar small-avatar" aria-label="Agente">AG</span></div></header>
       <main id="workspace" class="workspace-main" tabindex="-1">
         <div class="workspace-heading"><div><div class="eyebrow">TU MESA DE TRABAJO</div><h1 class="page-title">Un lugar para resolver.</h1><p class="page-intro">Organiza las solicitudes y acompaña cada solución.</p></div><button id="new-request" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#create-modal">${icon('plus-lg')} Nueva solicitud</button></div>
         <div id="storage-notice" class="storage-notice" hidden></div>
@@ -80,14 +92,14 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <div id="request-list"></div>
           <div class="queue-footer"><span id="page-summary" aria-live="polite"></span><div class="pagination-controls"><button id="previous-page" class="btn btn-sm btn-light" aria-label="Página anterior">${icon('chevron-left')}</button><span id="page-number"></span><button id="next-page" class="btn btn-sm btn-light" aria-label="Página siguiente">${icon('chevron-right')}</button></div></div>
         </section>
-        <div class="demo-note">${icon('shield-check')} Datos de demostración. Tus cambios se guardan en este navegador.<button id="export-data" class="btn btn-link btn-sm">${icon('download')} Exportar datos</button></div>
+        <div class="demo-note">${icon('shield-check')} ${apiMode ? 'Solicitudes del servidor. Actualiza para ver cambios de otras sesiones.' : 'Datos de demostración. Tus cambios se guardan en este navegador.'}<button id="export-data" class="btn btn-link btn-sm">${icon('download')} Exportar datos</button></div>
       </main>
     </div>
   </div>
   <div class="modal fade" id="create-modal" tabindex="-1" aria-labelledby="create-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><div><div class="eyebrow">UNA NUEVA CONVERSACIÓN</div><h2 class="modal-title fs-4" id="create-title">Nueva solicitud</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><form id="create-form"><div class="modal-body"><p class="text-secondary small">Cuéntanos qué necesita el cliente. Los campos marcados con * son obligatorios.</p><div id="create-error" class="alert alert-danger" role="alert" hidden></div><div class="mb-3"><label for="request-title" class="form-label">Título *</label><input class="form-control" id="request-title" name="title" required minlength="3" maxlength="120" placeholder="Ej. No puedo acceder a mi cuenta" /></div><div class="mb-3"><label for="request-customer" class="form-label">Cliente *</label><input class="form-control" id="request-customer" name="customer" required minlength="2" maxlength="80" placeholder="Nombre o empresa" /></div><div class="row g-3 mb-3"><div class="col-sm-6"><label for="request-category" class="form-label">Categoría *</label><select class="form-select" id="request-category" name="category" required>${Object.entries(categoryLabels).map(([key, value]) => `<option value="${key}">${value}</option>`).join('')}</select></div><div class="col-sm-6"><label for="request-priority" class="form-label">Prioridad *</label><select class="form-select" id="request-priority" name="priority" required><option value="normal">Normal</option><option value="urgent">Urgente</option><option value="low">Baja</option></select></div></div><div><label for="request-description" class="form-label">Descripción *</label><textarea class="form-control" id="request-description" name="description" required minlength="10" maxlength="2000" rows="4" placeholder="¿Qué ocurrió y qué necesita el cliente?"></textarea><div class="form-text">Entre 10 y 2.000 caracteres.</div></div></div><div class="modal-footer"><button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" id="create-submit" type="submit">Crear solicitud ${icon('arrow-right')}</button></div></form></div></div></div>
   <div class="offcanvas offcanvas-end" tabindex="-1" id="request-detail" aria-labelledby="detail-title"><div class="offcanvas-header"><span class="eyebrow">DETALLE DE SOLICITUD</span><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar detalle"></button></div><div class="offcanvas-body" id="detail-body"></div></div>
   <div class="modal fade" id="reset-modal" tabindex="-1" aria-labelledby="reset-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="reset-title">Restablecer la demostración</h2><button class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><p>Se eliminarán tus cambios en este navegador y se recuperarán las solicitudes de ejemplo.</p><p class="mb-0 small text-secondary">Puedes exportar una copia de los datos antes de continuar.</p><div class="alert alert-danger mt-3" id="reset-error" role="alert" hidden></div></div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger" id="confirm-reset">Restablecer datos</button></div></div></div></div>
-  <div class="modal fade" id="help-modal" tabindex="-1" aria-labelledby="help-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="help-title">De solicitud a solución</h2><button class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><ol class="help-steps"><li><strong>Registra la necesidad.</strong> Crea una solicitud con los datos del cliente.</li><li><strong>Encuentra lo importante.</strong> Combina los filtros de estado, prioridad y categoría. Usa «Solo abiertas» para excluir las resueltas y «Solo vencidas» para identificar solicitudes fuera de su plazo orientativo.</li><li><strong>Acompaña el proceso.</strong> Inicia la atención y añade comentarios.</li><li><strong>Deja una solución clara.</strong> Escribe una nota antes de resolver. Puedes reabrir una solicitud y conservar su historial.</li></ol><p class="small text-secondary mb-0">Mesa es una demostración con datos ficticios. Los datos se guardan solo en este navegador; no se sincronizan entre dispositivos.</p></div><div class="modal-footer"><button class="btn btn-light" type="button" data-bs-toggle="modal" data-bs-target="#reset-modal">Restablecer demo</button><button class="btn btn-primary" data-bs-dismiss="modal">Entendido</button></div></div></div></div>
+  <div class="modal fade" id="help-modal" tabindex="-1" aria-labelledby="help-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="help-title">De solicitud a solución</h2><button class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><ol class="help-steps"><li><strong>Registra la necesidad.</strong> Crea una solicitud con los datos del cliente.</li><li><strong>Encuentra lo importante.</strong> Combina los filtros de estado, prioridad y categoría. Usa «Solo abiertas» para excluir las resueltas y «Solo vencidas» para identificar solicitudes fuera de su plazo orientativo.</li><li><strong>Acompaña el proceso.</strong> Inicia la atención y añade comentarios.</li><li><strong>Deja una solución clara.</strong> Escribe una nota antes de resolver. Puedes reabrir una solicitud y conservar su historial.</li></ol><p class="small text-secondary mb-0">${apiMode ? 'Las solicitudes se guardan en el servidor. Usa Actualizar para ver los cambios de otras sesiones. Revisa cualquier aviso de conflicto antes de repetir un cambio.' : 'Mesa es una demostración con datos ficticios. Los datos se guardan solo en este navegador; no se sincronizan entre dispositivos.'}</p></div><div class="modal-footer"><button class="btn btn-light" type="button" ${apiMode ? 'hidden disabled' : ''} data-bs-toggle="modal" data-bs-target="#reset-modal">Restablecer demo</button><button class="btn btn-primary" data-bs-dismiss="modal">Entendido</button></div></div></div></div>
   <div class="toast-container position-fixed bottom-0 end-0 p-3"><div class="toast" id="feedback-toast" role="status" aria-live="polite" aria-atomic="true"><div class="d-flex align-items-center"><div class="toast-body" id="toast-message"></div><button class="btn-close me-3" data-bs-dismiss="toast" aria-label="Cerrar notificación"></button></div></div></div>
 `;
 
@@ -116,10 +128,75 @@ function commitRequests(next: SupportRequest[]) {
   renderQueue();
 }
 
+function syncAvailability() {
+  const locked = saving || (apiMode && (loading || apiReadFailed || uncertainCommand));
+  element<HTMLButtonElement>('new-request').disabled = locked;
+  for (const control of document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('#create-form input, #create-form textarea, #create-form select, #create-form button, #detail-body button, #detail-body input, #detail-body textarea, #detail-body select')) {
+    control.disabled = locked;
+  }
+  for (const control of document.querySelectorAll<HTMLButtonElement>('[data-open]')) control.disabled = saving || loading;
+  for (const control of document.querySelectorAll<HTMLButtonElement>('#create-modal [data-bs-dismiss], #request-detail [data-bs-dismiss]')) control.disabled = saving;
+  for (const id of ['refresh-requests', 'retry-connection']) {
+    const control = document.getElementById(id) as HTMLButtonElement | null;
+    if (control) control.disabled = saving || loading;
+  }
+  if (apiMode) {
+    element('save-status').innerHTML = `${icon(loading || saving ? 'arrow-repeat' : apiReadFailed || uncertainCommand ? 'exclamation-circle' : 'check2-circle')} ${loading ? 'Actualizando…' : saving ? 'Guardando…' : apiReadFailed ? 'Sin conexión' : uncertainCommand ? 'Revisión pendiente' : 'Servidor'}`;
+  }
+}
+
 function renderNotice() {
   const notice = element('storage-notice');
-  notice.hidden = !storageWarning;
-  notice.innerHTML = storageWarning ? `<div class="d-flex gap-2 align-items-start">${icon('exclamation-circle')}<div><p class="mb-2">${escapeHtml(storageWarning)}</p><button class="btn btn-sm btn-outline-dark" id="backup-storage">Descargar copia</button> <button class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#reset-modal">Restablecer demo</button></div></div>` : '';
+  if (apiMode) {
+    notice.hidden = !loading && !storageWarning;
+    notice.innerHTML = loading
+      ? `<div role="status">${icon('arrow-repeat')} Cargando solicitudes del servidor…</div>`
+      : storageWarning ? `<div class="d-flex gap-2 align-items-start">${icon('exclamation-circle')}<div><p class="mb-2">${escapeHtml(storageWarning)}</p><button class="btn btn-sm btn-outline-dark" id="retry-connection">Actualizar datos del servidor</button></div></div>` : '';
+  } else {
+    notice.hidden = !storageWarning;
+    notice.innerHTML = storageWarning ? `<div class="d-flex gap-2 align-items-start">${icon('exclamation-circle')}<div><p class="mb-2">${escapeHtml(storageWarning)}</p><button class="btn btn-sm btn-outline-dark" id="backup-storage">Descargar copia</button> <button class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#reset-modal">Restablecer demo</button></div></div>` : '';
+  }
+  syncAvailability();
+}
+
+function rememberDetailDrafts() {
+  if (!selectedId) return;
+  const draft = detailDrafts.get(selectedId) ?? {};
+  const resolution = document.querySelector<HTMLTextAreaElement>('#resolution-note');
+  const comment = document.querySelector<HTMLTextAreaElement>('#comment-text');
+  if (resolution) draft.resolution = resolution.value;
+  if (comment) draft.comment = comment.value;
+  detailDrafts.set(selectedId, draft);
+}
+
+async function refreshRequests(allowDuringMutation = false): Promise<boolean> {
+  if (!api || loading || (saving && !allowDuringMutation)) return false;
+  rememberDetailDrafts();
+  const previousFocusId = (document.activeElement as HTMLElement | null)?.id;
+  loading = true;
+  renderNotice(); renderQueue();
+  try {
+    requests = await api.list();
+    apiReadFailed = false; uncertainCommand = false; storageWarning = '';
+    if (createAttempt?.uncertain) createAttempt.reviewed = true;
+    if (selectedId && element('request-detail').classList.contains('show')) {
+      const selected = requests.find((request) => request.id === selectedId);
+      if (selected) renderDetail(selected);
+      else {
+        element('detail-body').innerHTML = '<h2 id="detail-title" class="detail-title">Solicitud no disponible</h2><div id="detail-error" class="alert alert-warning" role="alert">La solicitud ya no está en el servidor. Tus borradores se conservan en esta sesión.</div>';
+      }
+    }
+    return true;
+  } catch (error) {
+    apiReadFailed = true;
+    storageWarning = `${errorMessage(error)}${requests.length ? ' La lista mostrada puede estar desactualizada; actualiza antes de guardar cambios.' : ' No se han cargado solicitudes; vuelve a intentarlo.'}`;
+    return false;
+  } finally {
+    loading = false;
+    renderNotice(); renderQueue();
+    const previous = document.getElementById(previousFocusId ?? '');
+    if (previous && element('request-detail').classList.contains('show')) previous.focus();
+  }
 }
 
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase(); }
@@ -151,7 +228,9 @@ function renderQueue() {
   element('nav-all').classList.toggle('active', filters.status === 'all' || filters.status === 'new');
   element('nav-progress').classList.toggle('active', filters.status === 'in_progress');
   element('nav-resolved').classList.toggle('active', filters.status === 'resolved');
-  if (!displayed.length) {
+  if (apiMode && !requests.length && (loading || apiReadFailed)) {
+    element('request-list').innerHTML = `<div class="empty-state" role="status">${icon(loading ? 'arrow-repeat' : 'cloud-slash')}<h3>${loading ? 'Cargando solicitudes…' : 'No pudimos cargar las solicitudes'}</h3><p>${loading ? 'Esperando la respuesta del servidor.' : 'Usa Actualizar para volver a conectar.'}</p></div>`;
+  } else if (!displayed.length) {
     element('request-list').innerHTML = `<div class="empty-state">${icon('inbox')}<h3>No hay solicitudes aquí</h3><p>${requests.length ? 'Prueba con otros filtros o crea una nueva solicitud.' : 'Crea tu primera solicitud para empezar.'}</p><button class="btn btn-outline-primary" id="clear-filters">Limpiar filtros</button></div>`;
   } else {
     element('request-list').innerHTML = `<div class="d-none d-md-block table-responsive"><table class="table queue-table"><caption class="visually-hidden">Solicitudes que coinciden con los filtros seleccionados</caption><thead><tr><th scope="col">SOLICITUD</th><th scope="col">CLIENTE</th><th scope="col">ESTADO</th><th scope="col">PRIORIDAD</th><th scope="col">FECHA</th><th scope="col"><span class="visually-hidden">Abrir</span></th></tr></thead><tbody>${displayed.map((request) => `<tr><td><span class="request-id">${escapeHtml(shortId(request.id))}</span><button class="table-open-button request-title" data-open="${escapeHtml(request.id)}">${escapeHtml(request.title)}</button><span class="request-category">${categoryLabels[request.category]}</span></td><td><div class="customer-cell"><span class="customer-avatar">${escapeHtml(initials(request.customer))}</span><span>${escapeHtml(request.customer)}</span></div></td><td>${statusBadge(request.status)}</td><td>${priorityBadge(request.priority)}</td><td class="date-cell"><span>${dateFormat.format(new Date(request.createdAt))}</span>${deadlineBadge(request, now)}</td><td><button class="btn btn-icon" data-open="${escapeHtml(request.id)}" aria-label="Abrir ${escapeHtml(request.title)}">${icon('arrow-up-right')}</button></td></tr>`).join('')}</tbody></table></div><div class="d-md-none">${displayed.map((request) => `<article class="mobile-request-card"><div class="d-flex justify-content-between align-items-center mb-2"><span class="request-id">${escapeHtml(shortId(request.id))}</span>${statusBadge(request.status)}</div><button class="table-open-button request-title" data-open="${escapeHtml(request.id)}">${escapeHtml(request.title)}</button><div class="d-flex justify-content-between align-items-center mt-3"><div class="customer-cell"><span class="customer-avatar">${escapeHtml(initials(request.customer))}</span><span>${escapeHtml(request.customer)}</span></div>${priorityBadge(request.priority)}</div><div class="mt-2">${deadlineBadge(request, now)}</div></article>`).join('')}</div>`;
@@ -160,10 +239,17 @@ function renderQueue() {
   element('page-number').textContent = `${page} / ${pages}`;
   element<HTMLButtonElement>('previous-page').disabled = page <= 1;
   element<HTMLButtonElement>('next-page').disabled = page >= pages;
+  syncAvailability();
 }
 
 function renderDetail(request: SupportRequest) {
   element('detail-body').innerHTML = `<div class="request-id mb-2">${escapeHtml(shortId(request.id))} · ${categoryLabels[request.category]}</div><h2 id="detail-title" class="detail-title">${escapeHtml(request.title)}</h2><div class="d-flex gap-3 align-items-center mb-4">${statusBadge(request.status)}${priorityBadge(request.priority)}</div><div class="detail-meta"><div><span>CLIENTE</span><strong>${escapeHtml(request.customer)}</strong></div><div><span>CREADA</span><strong>${timeFormat.format(new Date(request.createdAt))}</strong></div></div><div class="deadline-panel">${deadlineBadge(request)}<span>Plazo orientativo: ${timeFormat.format(new Date(responseDueAt(request)))}. Cambiar la prioridad recalcula el plazo desde la fecha de creación.</span></div><h3 class="section-caption mt-4">DESCRIPCIÓN</h3><p class="detail-description">${escapeHtml(request.description)}</p><div id="detail-error" class="alert alert-danger" role="alert" hidden></div><div class="resolution-panel"><h3 class="fs-6 mb-3">Siguiente paso</h3>${request.status === 'new' ? `<p class="small text-secondary">La solicitud está lista para ser atendida.</p><button class="btn btn-primary w-100" id="start-request">${icon('play')} Iniciar atención</button>` : request.status === 'in_progress' ? `<form id="resolve-form"><label class="form-label" for="resolution-note">Nota de resolución *</label><textarea class="form-control mb-3" id="resolution-note" required maxlength="2000" rows="3" placeholder="Explica cómo se resolvió la solicitud"></textarea><button class="btn btn-primary w-100" type="submit">${icon('check2')} Resolver solicitud</button></form>` : `<p class="small detail-description">${escapeHtml(request.resolution ?? 'La resolución está registrada en el historial.')}</p><button class="btn btn-outline-primary w-100" id="reopen-request">${icon('arrow-counterclockwise')} Reabrir solicitud</button>`}</div><div class="mt-4"><label class="form-label" for="detail-priority">Prioridad</label><select class="form-select" id="detail-priority">${Object.entries(priorityLabels).map(([key, value]) => `<option value="${key}" ${key === request.priority ? 'selected' : ''}>${value}</option>`).join('')}</select></div><div class="d-flex justify-content-between align-items-center mt-4 mb-3"><h3 class="fs-6 m-0">Actividad</h3><span class="text-secondary small">${request.activity.length} eventos</span></div><ol class="activity-list">${[...request.activity].reverse().map((event) => `<li class="activity-item"><span class="activity-dot">${icon(event.kind === 'comment' ? 'chat-left-text' : event.kind === 'created' ? 'plus' : 'arrow-right')}</span><div><p class="mb-1 detail-description">${escapeHtml(event.text)}</p><time class="small text-secondary" datetime="${escapeHtml(event.at)}">${timeFormat.format(new Date(event.at))}</time></div></li>`).join('')}</ol><form id="comment-form" class="mt-4"><label class="form-label" for="comment-text">Añadir comentario</label><textarea class="form-control mb-2" id="comment-text" required maxlength="2000" rows="2" placeholder="Deja una actualización para el seguimiento"></textarea><button class="btn btn-outline-primary w-100" type="submit">Añadir comentario ${icon('arrow-right')}</button></form>`;
+  const draft = detailDrafts.get(request.id);
+  const resolution = document.querySelector<HTMLTextAreaElement>('#resolution-note');
+  const comment = document.querySelector<HTMLTextAreaElement>('#comment-text');
+  if (resolution && draft?.resolution !== undefined) resolution.value = draft.resolution;
+  if (comment && draft?.comment !== undefined) comment.value = draft.comment;
+  syncAvailability();
 }
 
 function currentRequest(): SupportRequest {
@@ -172,28 +258,60 @@ function currentRequest(): SupportRequest {
   return request;
 }
 
-function updateSelected(
-  updater: (request: SupportRequest) => SupportRequest,
+type DetailCommand =
+  | { kind: 'transition'; status: RequestStatus; note?: string }
+  | { kind: 'comment'; text: string }
+  | { kind: 'priority'; priority: Priority };
+
+async function updateSelected(
+  command: DetailCommand,
   message: string,
   options: { clearComment?: boolean; clearResolution?: boolean; focusId?: string } = {},
-): boolean {
-  const resolutionDraft = document.querySelector<HTMLTextAreaElement>('#resolution-note')?.value;
-  const commentDraft = document.querySelector<HTMLTextAreaElement>('#comment-text')?.value;
+): Promise<boolean> {
+  if (saving || (apiMode && (loading || apiReadFailed || uncertainCommand))) return false;
+  rememberDetailDrafts();
   const previousFocusId = (document.activeElement as HTMLElement | null)?.id;
+  saving = true; syncAvailability();
   try {
-    const updated = updater(currentRequest());
-    commitRequests(requests.map((request) => request.id === updated.id ? updated : request));
+    const current = currentRequest();
+    let updated: SupportRequest;
+    if (api) {
+      updated = command.kind === 'transition' ? await api.transition(current, command.status, command.note)
+        : command.kind === 'comment' ? await api.comment(current, command.text)
+          : await api.priority(current, command.priority);
+      requests = requests.map((request) => request.id === updated.id ? updated : request);
+      storageWarning = ''; renderNotice(); renderQueue();
+    } else {
+      updated = command.kind === 'transition' ? transitionRequest(current, command.status, command.note)
+        : command.kind === 'comment' ? addComment(current, command.text)
+          : changePriority(current, command.priority);
+      commitRequests(requests.map((request) => request.id === updated.id ? updated : request));
+    }
+    const draft = detailDrafts.get(updated.id) ?? {};
+    if (options.clearResolution) delete draft.resolution;
+    if (options.clearComment) delete draft.comment;
+    detailDrafts.set(updated.id, draft);
+    saving = false;
     renderDetail(updated);
-    const resolution = document.querySelector<HTMLTextAreaElement>('#resolution-note');
-    const comment = document.querySelector<HTMLTextAreaElement>('#comment-text');
-    if (resolution && !options.clearResolution && resolutionDraft !== undefined) resolution.value = resolutionDraft;
-    if (comment && !options.clearComment && commentDraft !== undefined) comment.value = commentDraft;
-    const title = element('detail-title');
-    title.tabIndex = -1;
+    const title = element('detail-title'); title.tabIndex = -1;
     (document.getElementById(options.focusId ?? previousFocusId ?? '') ?? title).focus();
     notify(message);
     return true;
-  } catch (error) { showError('detail-error', errorMessage(error)); return false; }
+  } catch (error) {
+    let message = errorMessage(error);
+    if (api && error instanceof ApiError && (error.status === 409 || error.status === 404)) {
+      const refreshed = await refreshRequests(true);
+      message = refreshed
+        ? `${message} Se cargó el estado actual del servidor y se conservaron tus borradores. Revísalos y vuelve a guardar si corresponde.`
+        : `${message} No se pudo actualizar el estado. Conservamos tus borradores; actualiza el servidor antes de repetir el cambio.`;
+    } else if (api && error instanceof ApiError && error.uncertain) {
+      uncertainCommand = true;
+      storageWarning = 'No se pudo confirmar el cambio. Actualiza los datos del servidor y revisa el resultado antes de volver a guardar.';
+      renderNotice();
+    }
+    showError('detail-error', message);
+    return false;
+  } finally { saving = false; syncAvailability(); }
 }
 
 function setStatus(status: RequestStatus | 'all', focusMetric = false) {
@@ -236,6 +354,8 @@ document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const openButton = target.closest<HTMLElement>('[data-open]');
   if (openButton) {
+    if (saving || loading) return;
+    rememberDetailDrafts();
     selectedId = openButton.dataset.open!;
     renderDetail(currentRequest());
     detailPanel.show(openButton);
@@ -246,37 +366,63 @@ document.addEventListener('click', (event) => {
   if (target.closest('#clear-filters')) {
     clearFilters(true);
   }
-  if (target.closest('#start-request')) updateSelected((request) => transitionRequest(request, 'in_progress'), 'Atención iniciada.', { focusId: 'resolution-note' });
-  if (target.closest('#reopen-request')) updateSelected((request) => transitionRequest(request, 'in_progress'), 'Solicitud reabierta. El historial se conserva.', { focusId: 'resolution-note' });
-  if (target.closest('#backup-storage')) {
+  if (target.closest('#start-request')) void updateSelected({ kind: 'transition', status: 'in_progress' }, 'Atención iniciada.', { focusId: 'resolution-note' });
+  if (target.closest('#reopen-request')) void updateSelected({ kind: 'transition', status: 'in_progress' }, 'Solicitud reabierta. El historial se conserva.', { focusId: 'resolution-note' });
+  if (target.closest('#retry-connection')) void refreshRequests();
+  if (!apiMode && target.closest('#backup-storage')) {
     try { download(window.localStorage.getItem(STORAGE_KEY) ?? '', 'mesa-copia-original.json'); }
     catch { notify('No se pudo acceder a la copia guardada. Revisa los permisos del navegador.'); }
   }
 });
 
-element('create-form').addEventListener('submit', (event) => {
+element('create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (saving || createSubmitted) return;
+  if (saving || createSubmitted || (apiMode && (loading || apiReadFailed || uncertainCommand))) return;
   const form = event.target as HTMLFormElement;
   if (!form.reportValidity()) return;
   const data = new FormData(form);
   const input: CreateInput = { title: String(data.get('title')), customer: String(data.get('customer')), description: String(data.get('description')), priority: data.get('priority') as Priority, category: data.get('category') as Category };
-  saving = true;
-  element<HTMLButtonElement>('create-submit').disabled = true;
+  saving = true; syncAvailability();
   element('create-error').hidden = true;
   try {
-    const request = createRequest(input);
-    commitRequests([request, ...requests]);
+    let request: SupportRequest;
+    if (api) {
+      const fingerprint = JSON.stringify(input);
+      if (createAttempt && createAttempt.fingerprint !== fingerprint && createAttempt.uncertain && !createAttempt.reviewed) {
+        throw new Error('La solicitud anterior puede haberse guardado. Reintenta con los mismos campos o actualiza y revisa el servidor antes de crear una solicitud diferente.');
+      }
+      if (!createAttempt || createAttempt.fingerprint !== fingerprint) {
+        createAttempt = { fingerprint, key: `mesa-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')}`, uncertain: false, reviewed: false };
+      }
+      request = await api.create(input, createAttempt.key);
+      requests = [request, ...requests.filter((item) => item.id !== request.id)];
+      storageWarning = ''; renderNotice(); renderQueue();
+      createAttempt = null;
+    } else {
+      request = createRequest(input);
+      commitRequests([request, ...requests]);
+    }
     createSubmitted = true;
     clearFilters();
     createModal.hide();
     notify('Solicitud creada. Ya está lista para atender.');
-  } catch (error) { showError('create-error', errorMessage(error)); }
-  finally { saving = false; element<HTMLButtonElement>('create-submit').disabled = false; }
+  } catch (error) {
+    if (createAttempt && error instanceof ApiError && error.uncertain) createAttempt.uncertain = true;
+    showError('create-error', errorMessage(error));
+  } finally { saving = false; syncAvailability(); }
 });
 
 element('create-modal').addEventListener('shown.bs.modal', () => element('request-title').focus());
-element('create-modal').addEventListener('hidden.bs.modal', () => { element<HTMLFormElement>('create-form').reset(); element('create-error').hidden = true; createSubmitted = false; });
+element('create-modal').addEventListener('hide.bs.modal', (event) => { if (saving && !createSubmitted) event.preventDefault(); });
+element('create-modal').addEventListener('hidden.bs.modal', () => {
+  element<HTMLFormElement>('create-form').reset();
+  element('create-error').hidden = true;
+  createSubmitted = false;
+  // A dismissed form cannot tell us whether an unconfirmed creation was saved.
+  // Keep its replay key until acknowledgement or an explicit server review.
+  if (!createAttempt?.uncertain || createAttempt.reviewed) createAttempt = null;
+});
+element('request-detail').addEventListener('hide.bs.offcanvas', (event) => { if (saving) event.preventDefault(); });
 
 element('request-detail').addEventListener('hidden.bs.offcanvas', () => {
   const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-open="${CSS.escape(selectedId ?? '')}"]`);
@@ -284,27 +430,29 @@ element('request-detail').addEventListener('hidden.bs.offcanvas', () => {
   (visibleButton ?? element('search')).focus();
 });
 
-element('detail-body').addEventListener('submit', (event) => {
+element('detail-body').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   if (!form.reportValidity()) return;
   if (form.id === 'resolve-form') {
     const note = element<HTMLTextAreaElement>('resolution-note').value;
-    updateSelected((request) => transitionRequest(request, 'resolved', note), 'Solicitud resuelta. Buen trabajo.', { clearResolution: true, focusId: 'detail-title' });
+    await updateSelected({ kind: 'transition', status: 'resolved', note }, 'Solicitud resuelta. Buen trabajo.', { clearResolution: true, focusId: 'detail-title' });
   } else if (form.id === 'comment-form') {
     const text = element<HTMLTextAreaElement>('comment-text').value;
-    updateSelected((request) => addComment(request, text), 'Comentario añadido al historial.', { clearComment: true, focusId: 'comment-text' });
+    await updateSelected({ kind: 'comment', text }, 'Comentario añadido al historial.', { clearComment: true, focusId: 'comment-text' });
   }
 });
-element('detail-body').addEventListener('change', (event) => {
+element('detail-body').addEventListener('change', async (event) => {
   if ((event.target as HTMLElement).id === 'detail-priority') {
     const priority = (event.target as HTMLSelectElement).value as Priority;
-    const saved = updateSelected((request) => changePriority(request, priority), 'Prioridad actualizada.', { focusId: 'detail-priority' });
-    if (!saved) (event.target as HTMLSelectElement).value = currentRequest().priority;
+    const saved = await updateSelected({ kind: 'priority', priority }, 'Prioridad actualizada.', { focusId: 'detail-priority' });
+    const select = document.getElementById('detail-priority') as HTMLSelectElement | null;
+    if (!saved && select && requests.some((request) => request.id === selectedId)) select.value = currentRequest().priority;
   }
 });
 
 element('confirm-reset').addEventListener('click', () => {
+  if (apiMode || saving) return;
   try {
     const seeds = createSeedRequests();
     saveRequests(window.localStorage, seeds);
@@ -325,3 +473,5 @@ function download(content: string, name: string) {
 element('export-data').addEventListener('click', () => download(JSON.stringify({ version: 1, requests }, null, 2), 'mesa-solicitudes.json'));
 renderNotice();
 renderQueue();
+element('refresh-requests')?.addEventListener('click', () => { void refreshRequests(); });
+if (apiMode) void refreshRequests();

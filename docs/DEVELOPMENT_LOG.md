@@ -64,3 +64,25 @@ Browser review reproduced focus loss when a metric or empty-state clear action r
 LAN review verified an insecure HTTP context where `crypto.randomUUID` is unavailable. Default IDs now use `crypto.getRandomValues`; request creation succeeded at the LAN URL. Dedicated unit/browser checks protect this case. The two simulated product requests are recorded in [CHANGE_REQUESTS.md](CHANGE_REQUESTS.md).
 
 A final compatibility check found that storage accepted a `24:00:00` timestamp which the new deadline functions rejected. Storage validation now rejects that noncanonical clock hour too, so malformed saved data enters recovery instead of failing during queue rendering. The regression sets creation, update and activity times together to prove the compatibility case rather than failing for an unrelated history-order check.
+
+## October 29 — authorized local API extension, v0.3.0
+
+José requested API/backend integration before the final CV review. The implementation extends the retained browser release with an explicitly selected local FastAPI + SQLite mode. Codex and collaborating agents implemented the backend, asynchronous frontend integration, tests and documentation. This is not recorded as a learner-authored change.
+
+The API contract includes health/list/detail/create endpoints, transitions, comments and priority changes. API records carry a positive integer version; mutating an older version returns HTTP 409. Server-side validation returns 422 and missing request IDs return 404. The SQLite path defaults to `backend/data/mesa.sqlite3`, with `MESA_DB_PATH` as an override. The backend seeds fictional data on initial database creation only.
+
+The default frontend mode remains browser-local. `VITE_MESA_STORAGE=api` opts into the API through Vite's local proxy; the client must not import browser records or silently fall back to browser storage. API mode disables demo reset because the API has no reset/delete endpoint. It has no authentication or cloud deployment.
+
+**Verification status: passed locally.** The existing browser verification above belongs to v0.2.0. Specific API results are recorded below as they are executed. Setup and the contract are described in [API.md](API.md).
+
+### Specific API persistence check — verified October 29
+
+Root executed creation, start, comment and resolution through an actual HTTP server, reaching version 4. After stopping Uvicorn and starting an independent process with the same temporary SQLite file, GET returned the same fields, activity and resolution, without duplicate seed records. The machine-readable evidence is [mesa_api_restart_validation.json](api-restart-validation.json). This verifies that recorded restart scenario; later suite results are separate.
+
+Creation replay protection is implemented through an optional `Idempotency-Key` header and a SQLite mapping of key, normalized input hash and request ID. Same-key/same-input retries return the existing request; different input conflicts. The frontend retains the pending attempt key for explicit same-input retries and treats ambiguous outcomes for other commands as requiring refresh/review. These behavior descriptions come from the implementation; specific test outcomes must be added only after execution.
+
+### API frontend verification — confirmed October 29
+
+The frontend type check, 55 frontend unit tests, 48 backend tests, both production builds, 15 browser-mode journeys and six API-mode journeys passed locally on October 29, 2026. A real-process restart check also preserved the full request, resolution and history.
+
+Review found that dismissing an unconfirmed creation discarded its retry key. The modal now retains that key until acknowledgement or explicit server review. The production API browser suite verifies lost-response creation across cancel/reopen, plus uncertain detail writes, conflict recovery and draft preservation. The backend suite checks atomic conflicts, SQL rollback and persisted create replay after restart. These results cover the exercised behavior, not every possible failure or completed learner practice.
