@@ -86,3 +86,7 @@ Creation replay protection is implemented through an optional `Idempotency-Key` 
 The frontend type check, 55 frontend unit tests, 48 backend tests, both production builds, 15 browser-mode journeys and six API-mode journeys passed locally on October 29, 2026. A real-process restart check also preserved the full request, resolution and history.
 
 Review found that dismissing an unconfirmed creation discarded its retry key. The modal now retains that key until acknowledgement or explicit server review. The production API browser suite verifies lost-response creation across cancel/reopen, plus uncertain detail writes, conflict recovery and draft preservation. The backend suite checks atomic conflicts, SQL rollback and persisted create replay after restart. These results cover the exercised behavior, not every possible failure or completed learner practice.
+
+### Personal review confirmation — October 29
+
+José confirmed that he has worked through Mesa enough to explain and demonstrate its Bootstrap layout, request workflow, API and tests. This records his self-assessment, not an independent interview result, a review of every test's efficiency or completion of the optional worksheet's specific code changes. It does not change the recorded implementation authorship or establish a year of Bootstrap experience.

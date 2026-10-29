@@ -1,6 +1,6 @@
 # Optional hands-on practice — 25–40 minutes
 
-**José's practice remains unconfirmed.** This worksheet is optional learning alongside an implemented browser application, not a list of unfinished software features. The goal is to make two small changes, check them, and explain the relevant behavior. Software verification has its own [record](VALIDATION.md).
+**Personal review update — October 29, 2026:** José confirmed that he can explain and demonstrate Mesa's Bootstrap layout, request workflow, API and tests. This is his self-reported review; the optional code changes in this worksheet have not been separately recorded as completed. The worksheet is learning alongside an implemented application, not a list of unfinished software features. Software verification has its own [record](VALIDATION.md).
 
 The interface is in Spanish. The default browser mode stores synthetic requests in this browser. The optional v0.3 API extension uses local FastAPI + SQLite; its setup and current verification status are in [API.md](API.md). Neither mode establishes a cloud deployment. Start the browser exercises below with `npm run dev` so their storage examples match the selected mode.
 
