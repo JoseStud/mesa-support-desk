@@ -11,7 +11,7 @@
     "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
     "check": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "preview": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
