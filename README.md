@@ -17,7 +17,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL, normally <http://127.0.0.1:4173>. The development server also listens on the LAN; on the current machine it is available at <http://192.168.1.6:4173>. To serve the production build, use `npm run build`, then `npm run preview` on port 4174.
+Open the printed local URL, normally <http://127.0.0.1:4173>. The development server also listens on the LAN at `http://<your-LAN-IP>:4173`; use the address of the machine running Vite. To serve the production build, use `npm run build`, then `npm run preview` on port 4174.
 
 Browser data is tied to the origin: localhost and the LAN address have separate stored requests even on the same browser.
 
@@ -85,4 +85,4 @@ flowchart LR
 
 Data belongs to this browser and origin. It is not synchronized or an encrypted/shared customer system. Use synthetic information. Clearing browser storage removes saved requests. The current release does not coordinate simultaneous edits from multiple tabs.
 
-The proposed next release adds FastAPI, durable backend storage and Google Cloud deployment. Those features are outside this browser release. Public GitHub publication and remote CI are separate delivery options; the current workflow runs locally or on the LAN.
+The proposed next release adds FastAPI, durable backend storage and Google Cloud deployment. Those features are outside this browser release. The current workflow runs locally or on the LAN; remote CI is not configured.
