@@ -10,12 +10,12 @@ This entry records the build context only. It does not certify passing checks, i
 
 ## Release verification
 
-Executed by Codex on October 28,2026; see [VALIDATION.md](VALIDATION.md).
+Latest browser release verification: October 29, 2026; see [VALIDATION.md](VALIDATION.md). Earlier October 28 checks passed 33 unit and nine browser cases.
 
 - `npm run check`: passed.
-- `npm test`: 33 unit tests passed across two files.
+- `npm test`: 43 unit tests passed across two files.
 - `npm run build`: passed.
-- `npm run test:e2e`: nine browser tests passed against the production build.
+- `npm run test:e2e`: 15 browser tests passed against the production build.
 - Responsive and keyboard checks: 375/768/1440 px; Escape and focus-return checks passed after the offcanvas opening transition.
 - Evidence files: desktop/tablet/mobile/detail screenshots and `docs/demo.webm`.
 - Remaining limitations: browser-only storage; no API/cloud/public CI; learner modifications pending.
@@ -53,4 +53,14 @@ The first keyboard automation checked visual visibility before Bootstrap finishe
 
 ### Planned learner change
 
-The open-only filter and SCSS change in [LEARNING.md](LEARNING.md) remain pending. No completion, date or user-authored commit is recorded for them yet.
+The open-only filter has now been implemented by Codex at José's request to complete the browser app; it is no longer a pending learner feature. Optional learner exercises are in [LEARNING.md](LEARNING.md); no user-authored change is recorded without confirmation.
+
+### October 29 — browser completion
+
+Added open-only and overdue filters, urgency shortcut, derived deadline labels and complete filter reset. Priority changes recalculate the informational deadline from the original creation time. The storage schema remains version1, so existing saved requests still load.
+
+Browser review reproduced focus loss when a metric or empty-state clear action rerendered its own button; those actions now restore a suitable focus target. Failed comment-save feedback could be outside the scrolled panel; errors now receive focus and scroll into view. Mobile help now exposes demo reset, long request/customer text wraps, and filter padding prevents clipped labels.
+
+LAN review verified an insecure HTTP context where `crypto.randomUUID` is unavailable. Default IDs now use `crypto.getRandomValues`; request creation succeeded at the LAN URL. Dedicated unit/browser checks protect this case. The two simulated product requests are recorded in [CHANGE_REQUESTS.md](CHANGE_REQUESTS.md).
+
+A final compatibility check found that storage accepted a `24:00:00` timestamp which the new deadline functions rejected. Storage validation now rejects that noncanonical clock hour too, so malformed saved data enters recovery instead of failing during queue rendering. The regression sets creation, update and activity times together to prove the compatibility case rather than failing for an unrelated history-order check.

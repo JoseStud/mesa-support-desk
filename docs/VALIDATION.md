@@ -1,18 +1,24 @@
-# Release A validation
+# Browser release v0.2.0 validation
 
-Executed October 28, 2026. **Application checks passed; José's hands-on practice remains pending.** All test counts below are actual local results, not public CI results.
+Executed October 29, 2026. **Browser software acceptance is complete.** These are actual local results, not public CI results. Optional learner practice is tracked separately.
 
 | Check | Result |
 |---|---|
 | TypeScript (`npm run check`) | Passed |
-| Unit tests (`npm test`) | 33 passed across 2 files |
+| Unit tests (`npm test`) | 42 passed across 2 files: 24 domain and 19 storage cases |
 | Production build (`npm run build`) | Passed, Vite 8.3.5 |
-| Browser tests (`npm run test:e2e`) | 9 passed against the production preview |
+| Browser tests (`npm run test:e2e`) | 15 passed against the production preview |
 | Layout widths | 375, 768 and 1440 px; no horizontal page overflow in browser checks |
 | Keyboard | Escape closes detail after its opening transition; focus returns to the request button |
 | Save recovery | Creation retains input after failure; retry saves once; failed priority change restores the saved selection |
 | Draft preservation | Changing priority retains unrelated text; posting a comment retains a resolution draft and restores focus |
 | Corrupt saved data | Original bytes preserved until explicit reset |
+| New filters and deadlines | Open-only/overdue intersections, pagination reset, resolved exclusion and priority-based recalculation passed |
+| Focus and recovery | Metric and clear-filter focus retained; failed detail save is focused/scrolled into view; reset is reachable on mobile |
+| Long content | Maximum-length unbroken title and customer names wrap on mobile |
+| LAN HTTP creation | Verified at `http://192.168.1.6:4173`, with `isSecureContext=false` and `crypto.randomUUID` unavailable; one request created and no page errors |
+
+Deadline boundary checks cover just before, exactly at and after the deadline. The deadline is creation time plus the current priority's 4/24/72 calendar hours. Resolved requests are excluded; reopening uses the original creation time. These are informational demo targets, not a business-hours SLA.
 
 ## Reproduce
 
@@ -44,6 +50,7 @@ Those absolute paths describe this machine; normal Playwright installations do n
 - [Tablet screenshot](screenshots/tablet.png)
 - [Mobile screenshot](screenshots/mobile.png)
 - [Request detail screenshot](screenshots/request-detail.png)
+- [Overdue-filter screenshot](screenshots/overdue-filter.png)
 - [Recorded workflow](demo.webm)
 - [Actual bug and review record](DEVELOPMENT_LOG.md)
 
@@ -51,4 +58,4 @@ The recording uses synthetic data and video-only explanatory captions. It demons
 
 ## Limits
 
-No public GitHub CI or hosting has been created. The release has browser-local persistence, not an API or cloud database. Automated checks do not establish external users, production security or a duration of employment. Personal learning is recorded separately after actual practice.
+No public GitHub CI or hosting has been created. The agreed browser release is complete and has browser-local persistence; an API/cloud release remains a separate future scope. Personal learning is recorded separately after actual practice.

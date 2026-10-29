@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  addComment, changePriority, createRequest, filterRequests, getStats, transitionRequest,
+  addComment, changePriority, createRequest, filterRequests, getStats, isOverdue,
+  responseDueAt, transitionRequest,
 } from '../../src/domain';
 import { createSeedRequests } from '../../src/seed';
 import type { CreateInput, RequestFilters, RequestStatus } from '../../src/types';
@@ -14,6 +15,18 @@ const input: CreateInput = {
 const filters: RequestFilters = { query: '', status: 'all', priority: 'all', category: 'all', sort: 'newest' };
 
 describe('request creation and validation', () => {
+  it('creates a browser-safe random identifier when randomUUID is unavailable', () => {
+    const browserCrypto = { getRandomValues: crypto.getRandomValues.bind(crypto) };
+    vi.stubGlobal('crypto', browserCrypto);
+    try {
+      const request = createRequest(input, now);
+      expect(request.id).toMatch(/^MS-[0-9A-F]{16}$/);
+      expect(request.activity[0].id).toBe(`${request.id}-created-0`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('trims input and records the initial event without changing the supplied input', () => {
     const dirty = { ...input, title: `  ${input.title}  `, description: ` ${input.description} ` };
     const result = createRequest(Object.freeze(dirty), now, 'test-1');
@@ -98,5 +111,84 @@ describe('filtering and summaries', () => {
     expect(new Set(requests.map((item) => item.id)).size).toBe(8);
     expect(createSeedRequests(now)).toEqual(requests);
     expect(createSeedRequests(now)[0]).not.toBe(requests[0]);
+  });
+});
+
+describe('calendar-hour response deadlines', () => {
+  it.each([
+    ['urgent', '2026-10-28T19:00:00.000Z'],
+    ['normal', '2026-10-29T15:00:00.000Z'],
+    ['low', '2026-10-31T15:00:00.000Z'],
+  ] as const)('uses the %s priority deadline anchored to creation', (priority, expected) => {
+    const request = createRequest({ ...input, priority }, now, 'deadline');
+    expect(responseDueAt(request)).toBe(expected);
+  });
+
+  it('becomes overdue exactly at the deadline and excludes resolved requests', () => {
+    const request = createRequest({ ...input, priority: 'urgent' }, now, 'deadline');
+    expect(isOverdue(request, '2026-10-28T18:59:59.999Z')).toBe(false);
+    expect(isOverdue(request, '2026-10-28T19:00:00.000Z')).toBe(true);
+    expect(isOverdue(request, '2026-10-28T19:00:00.001Z')).toBe(true);
+    const resolved = transitionRequest(
+      transitionRequest(request, 'in_progress', undefined, later),
+      'resolved', 'Acceso corregido.', later,
+    );
+    expect(isOverdue(resolved, '2026-10-29T19:00:00.000Z')).toBe(false);
+  });
+
+  it('recomputes from creation when priority changes without resetting the clock', () => {
+    const original = createRequest(input, now, 'deadline');
+    const urgent = changePriority(original, 'urgent', later);
+    const low = changePriority(urgent, 'low', later);
+    expect(responseDueAt(original)).toBe('2026-10-29T15:00:00.000Z');
+    expect(responseDueAt(urgent)).toBe('2026-10-28T19:00:00.000Z');
+    expect(responseDueAt(low)).toBe('2026-10-31T15:00:00.000Z');
+    expect(original.priority).toBe('normal');
+    expect(urgent.createdAt).toBe(original.createdAt);
+    expect(urgent.updatedAt).toBe(later);
+  });
+
+  it('accepts timezone offsets and rejects illegal creation or evaluation dates', () => {
+    const request = createRequest(input, now, 'deadline');
+    expect(responseDueAt({ ...request, createdAt: '2026-10-28T10:00:00-05:00' })).toBe('2026-10-29T15:00:00.000Z');
+    for (const invalid of ['not-a-date', '2026-02-31T15:00:00.000Z', '2026-10-28T24:00:00.000Z']) {
+      expect(() => responseDueAt({ ...request, createdAt: invalid })).toThrow('fecha de creación');
+      expect(() => isOverdue(request, invalid)).toThrow('fecha de evaluación');
+    }
+    expect(() => responseDueAt({ ...request, priority: 'invalid' as 'urgent' })).toThrow('prioridad');
+  });
+});
+
+describe('open-only and overdue-only filtering', () => {
+  it('combines open-only with the existing filters and does not mutate the input', () => {
+    const open = createRequest({ ...input, priority: 'urgent' }, now, 'open');
+    const resolved = transitionRequest(
+      transitionRequest(createRequest({ ...input, priority: 'urgent' }, now, 'closed'), 'in_progress', undefined, later),
+      'resolved', 'Acceso corregido.', later,
+    );
+    const otherCategory = createRequest({ ...input, priority: 'urgent', category: 'software' }, now, 'software');
+    const collection = Object.freeze([resolved, otherCategory, open]);
+    const before = JSON.stringify(collection);
+    expect(filterRequests(collection, { ...filters, query: ' ERROR ', category: 'access', priority: 'urgent', openOnly: true }).map((item) => item.id)).toEqual(['open']);
+    expect(filterRequests(collection, { ...filters, status: 'resolved', openOnly: true })).toEqual([]);
+    expect(filterRequests(collection, { ...filters, openOnly: false })).toEqual(filterRequests(collection, filters));
+    expect(JSON.stringify(collection)).toBe(before);
+  });
+
+  it('combines overdue-only, open-only and explicit filters at one injected instant', () => {
+    const urgent = createRequest({ ...input, priority: 'urgent' }, now, 'urgent');
+    const normal = createRequest(input, now, 'normal');
+    const resolved = transitionRequest(
+      transitionRequest(createRequest({ ...input, priority: 'urgent' }, now, 'closed'), 'in_progress', undefined, later),
+      'resolved', 'Acceso corregido.', later,
+    );
+    const software = createRequest({ ...input, priority: 'urgent', category: 'software' }, now, 'software');
+    const collection = Object.freeze([resolved, normal, software, urgent]);
+    const before = JSON.stringify(collection);
+    expect(filterRequests(collection, { ...filters, overdueOnly: true }, '2026-10-28T19:00:00.000Z').map((item) => item.id)).toEqual(['software', 'urgent']);
+    expect(filterRequests(collection, { ...filters, query: ' ERROR ', category: 'access', priority: 'urgent', status: 'new', openOnly: true, overdueOnly: true }, '2026-10-28T19:00:00.000Z').map((item) => item.id)).toEqual(['urgent']);
+    expect(filterRequests(collection, { ...filters, overdueOnly: true }, '2026-10-28T18:59:59.999Z')).toEqual([]);
+    expect(filterRequests(collection, { ...filters, status: 'resolved', overdueOnly: true }, '2026-10-29T15:00:00.000Z')).toEqual([]);
+    expect(JSON.stringify(collection)).toBe(before);
   });
 });

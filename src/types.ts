@@ -37,4 +37,6 @@ export interface RequestFilters {
   priority: Priority | 'all';
   category: Category | 'all';
   sort: 'newest' | 'oldest' | 'priority';
+  openOnly?: boolean;
+  overdueOnly?: boolean;
 }

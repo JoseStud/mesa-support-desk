@@ -40,6 +40,12 @@ describe('versioned browser storage', () => {
   it.each([
     ['invalid request date', (requests: ReturnType<typeof valid>) => { requests[0].createdAt = 'not-a-date'; }],
     ['impossible calendar date', (requests: ReturnType<typeof valid>) => { requests[0].createdAt = '2026-02-31T00:00:00.000Z'; }],
+    ['noncanonical midnight accepted by Date.parse', (requests: ReturnType<typeof valid>) => {
+      const endOfDay = '2026-10-28T24:00:00Z';
+      requests[0].createdAt = endOfDay;
+      requests[0].updatedAt = endOfDay;
+      requests[0].activity[0].at = endOfDay;
+    }],
     ['invalid activity timestamp', (requests: ReturnType<typeof valid>) => { requests[0].activity[0].at = 'yesterday'; }],
     ['missing history', (requests: ReturnType<typeof valid>) => { requests[0].activity = []; }],
     ['activity later than update', (requests: ReturnType<typeof valid>) => { requests[0].activity[0].at = '2027-01-01T00:00:00.000Z'; }],

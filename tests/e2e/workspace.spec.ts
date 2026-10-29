@@ -144,3 +144,112 @@ test('restores saved priority after a failed write and allows the same choice ag
   const savedPriority = await page.evaluate(() => JSON.parse(localStorage.getItem('mesa.requests.v1')!).requests.find((item: { id: string }) => item.id === 'MS-1049').priority);
   expect(savedPriority).toBe('urgent');
 });
+
+test('combines open-only filters, resets pagination and keeps keyboard focus', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Página siguiente' }).click();
+  await expect(page.locator('#page-number')).toHaveText('2 / 2');
+  await page.getByRole('switch', { name: 'Solo abiertas', exact: true }).check();
+  await expect(page.locator('#result-count')).toHaveText('6');
+  await expect(page.locator('#page-number')).toHaveText('1 / 1');
+  await page.getByLabel('Filtrar por prioridad').selectOption('urgent');
+  await expect(page.locator('#result-count')).toHaveText('2');
+  await page.getByLabel('Filtrar por estado').selectOption('resolved');
+  await expect(page.locator('#result-count')).toHaveText('0');
+  await page.locator('#clear-filters').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#search')).toBeFocused();
+  await expect(page.getByRole('switch', { name: 'Solo abiertas', exact: true })).not.toBeChecked();
+  await expect(page.locator('#result-count')).toHaveText('8');
+  const metric = page.locator('#stats [data-status="in_progress"]');
+  await metric.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#result-count')).toHaveText('3');
+  await expect(metric).toBeFocused();
+});
+
+test('shows overdue work and recalculates deadlines when priority changes', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-29T13:00:00.000Z'));
+  await page.goto('/');
+  await expect(page.locator('#overdue-count')).toHaveText('3');
+  await page.getByRole('switch', { name: 'Solo vencidas', exact: true }).check();
+  await expect(page.locator('#result-count')).toHaveText('3');
+  await page.getByLabel('Filtrar por estado').selectOption('resolved');
+  await expect(page.locator('#result-count')).toHaveText('0');
+  await page.locator('#reset-filters').click();
+  await page.getByRole('searchbox', { name: 'Buscar solicitudes' }).fill('informe de ventas');
+  await page.getByRole('button', { name: 'El informe de ventas no carga', exact: true }).click();
+  await expect(page.locator('#request-detail .deadline-label')).not.toContainText('Vencida');
+  await page.locator('#detail-priority').selectOption('urgent');
+  await expect(page.locator('#request-detail .deadline-label')).toContainText('Vencida');
+  await expect(page.locator('#overdue-count')).toHaveText('4');
+  await page.getByRole('button', { name: 'Cerrar detalle' }).click();
+  await page.getByRole('switch', { name: 'Solo vencidas', exact: true }).check();
+  await expect(page.locator('#result-count')).toHaveText('1');
+});
+
+test('creates requests without randomUUID on non-secure browser origins', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window.crypto, 'randomUUID', { value: undefined, configurable: true }));
+  await page.goto('/');
+  await fillRequest(page, 'Solicitud desde una dirección de red local');
+  await page.getByRole('button', { name: 'Crear solicitud', exact: false }).click();
+  await expect(page.locator('#create-modal')).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Solicitud desde una dirección de red local', exact: true })).toBeVisible();
+});
+
+test('wraps maximum-length titles and customer names on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  const title = 'A'.repeat(120);
+  const customer = 'B'.repeat(80);
+  await fillRequest(page, title);
+  await page.getByLabel('Cliente *', { exact: true }).fill(customer);
+  await page.getByRole('button', { name: 'Crear solicitud', exact: false }).click();
+  await expect(page.locator('#create-modal')).not.toBeVisible();
+  const button = page.getByRole('button', { name: title, exact: true });
+  await expect(button).toBeVisible();
+  const bounds = await button.boundingBox();
+  expect(bounds!.width).toBeLessThan(340);
+  const textOverflow = await page.locator('.mobile-request-card').first().evaluate((card) => [...card.querySelectorAll<HTMLElement>('.request-title,.customer-cell')].some((item) => item.scrollWidth > item.clientWidth + 1));
+  expect(textOverflow).toBe(false);
+});
+
+test('exposes reset on mobile and clears all filters after confirmation', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Buscar solicitudes' }).fill('sin coincidencias');
+  await page.getByRole('switch', { name: 'Solo abiertas', exact: true }).check();
+  await page.getByRole('switch', { name: 'Solo vencidas', exact: true }).check();
+  await page.getByLabel('Ordenar solicitudes').selectOption('priority');
+  await expect(page.locator('#queue-sort-label')).toHaveText('Ordenadas por prioridad');
+  await page.getByRole('button', { name: 'Ayuda', exact: true }).click();
+  await page.locator('#help-modal').getByRole('button', { name: 'Restablecer demo', exact: true }).click();
+  await page.getByRole('button', { name: 'Restablecer datos', exact: true }).click();
+  await expect(page.locator('#reset-modal')).not.toBeVisible();
+  await expect(page.locator('#search')).toHaveValue('');
+  await expect(page.getByRole('switch', { name: 'Solo abiertas', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Solo vencidas', exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('Ordenar solicitudes')).toHaveValue('newest');
+  await expect(page.locator('#result-count')).toHaveText('8');
+});
+
+test('scrolls a failed comment save into view and keeps the draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'El informe de ventas no carga', exact: true }).click();
+  await expect(page.locator('#request-detail')).toHaveClass(/\bshow\b/);
+  await page.getByLabel('Añadir comentario', { exact: true }).fill('Este comentario debe conservarse tras el fallo.');
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'mesa.requests.v1') throw new Error('Storage unavailable');
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole('button', { name: 'Añadir comentario', exact: false }).click();
+  await expect(page.locator('#detail-error')).toBeFocused();
+  const errorBounds = await page.locator('#detail-error').boundingBox();
+  expect(errorBounds!.y).toBeGreaterThanOrEqual(0);
+  expect(errorBounds!.y + errorBounds!.height).toBeLessThanOrEqual(900);
+  await expect(page.getByLabel('Añadir comentario', { exact: true })).toHaveValue('Este comentario debe conservarse tras el fallo.');
+});

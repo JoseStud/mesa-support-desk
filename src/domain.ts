@@ -78,7 +78,9 @@ export function createRequest(input: CreateInput, now?: string, id?: string): Su
   const category = oneOf(input.category, categories, 'La categoría');
   const priority = oneOf(input.priority, priorities, 'La prioridad');
   const at = timestamp(now);
-  const requestId = id === undefined ? `req-${crypto.randomUUID()}` : text(id, 'El identificador', 1, 150);
+  const requestId = id === undefined
+    ? `MS-${Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase()}`
+    : text(id, 'El identificador', 1, 150);
 
   return {
     id: requestId,
@@ -99,11 +101,47 @@ function searchable(value: string): string {
   return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('es').trim();
 }
 
+function deadlineTimestamp(value: string, label: string): number {
+  const parts = typeof value === 'string'
+    ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.exec(value)
+    : null;
+  if (!parts) throw new Error(`${label} no es válida.`);
+  const [, year, month, day, hour, minute, second] = parts.map(Number);
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(year, month - 1, day);
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)
+    || calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1
+    || calendar.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) {
+    throw new Error(`${label} no es válida.`);
+  }
+  return milliseconds;
+}
+
+/** Demo policy in calendar hours, always anchored to creation and the current priority. */
+export function responseDueAt(request: SupportRequest): string {
+  const priority = oneOf(request.priority, priorities, 'La prioridad');
+  const hours: Record<Priority, number> = { urgent: 4, normal: 24, low: 72 };
+  const due = deadlineTimestamp(request.createdAt, 'La fecha de creación') + hours[priority] * 60 * 60 * 1000;
+  return new Date(due).toISOString();
+}
+
+export function isOverdue(request: SupportRequest, now = new Date().toISOString()): boolean {
+  const status = oneOf(request.status, statuses, 'El estado');
+  const due = Date.parse(responseDueAt(request));
+  const current = deadlineTimestamp(now, 'La fecha de evaluación');
+  return status !== 'resolved' && current >= due;
+}
+
 export function filterRequests(
   requests: readonly SupportRequest[],
   filters: RequestFilters,
+  now?: string,
 ): SupportRequest[] {
   const query = searchable(filters.query);
+  // One evaluation instant keeps all rows consistent at a deadline boundary.
+  const evaluationTime = filters.overdueOnly ? now ?? new Date().toISOString() : undefined;
+  if (evaluationTime !== undefined) deadlineTimestamp(evaluationTime, 'La fecha de evaluación');
   const result = requests.filter((request) => {
     const matchesText = !query || searchable(
       `${request.id} ${request.title} ${request.description} ${request.customer}`,
@@ -111,7 +149,9 @@ export function filterRequests(
     return matchesText
       && (filters.status === 'all' || request.status === filters.status)
       && (filters.priority === 'all' || request.priority === filters.priority)
-      && (filters.category === 'all' || request.category === filters.category);
+      && (filters.category === 'all' || request.category === filters.category)
+      && (!filters.openOnly || request.status !== 'resolved')
+      && (!filters.overdueOnly || isOverdue(request, evaluationTime));
   });
 
   const weight: Record<Priority, number> = { urgent: 0, normal: 1, low: 2 };

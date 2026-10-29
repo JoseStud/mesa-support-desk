@@ -1,6 +1,6 @@
-# Guided hands-on practice — 25–40 minutes
+# Optional hands-on practice — 25–40 minutes
 
-**All exercises are pending.** Codex generating a working application does not mean José has completed this practice. The goal is to make two real changes, check them, and explain the relevant behavior.
+**José's practice remains unconfirmed.** This worksheet is optional learning alongside an implemented browser application, not a list of unfinished software features. The goal is to make two small changes, check them, and explain the relevant behavior. Software verification has its own [record](VALIDATION.md).
 
 The interface is in Spanish. Release A stores synthetic requests in this browser; it has no API or cloud backend.
 
@@ -42,15 +42,15 @@ Record the actual file, change and reason:
 
 ## 3. Add or modify a filter — 10–15 minutes
 
-Add an **“Open only” / “Solo abiertas”** toggle. It should exclude `resolved` requests while preserving the existing text, priority and category selections.
+Open-only and overdue-only are already implemented. For a new exercise, add an optional **“Customer starts with” / “Cliente empieza por”** input that narrows results by a normalized customer-name prefix while preserving the existing filters.
 
-1. Add the filter state to `src/types.ts` if necessary.
-2. Add its predicate to the filtering logic in `src/domain.ts`.
-3. Connect a labelled control and its events in `src/main.ts`.
-4. Add a unit test using three records: urgent/new, urgent/resolved and normal/in-progress. With urgent + open-only selected, only urgent/new should remain. Confirm that the input records are unchanged.
-5. Check that turning the toggle off restores the existing filter behavior.
+1. Add an optional `customerPrefix` field to the filter type in `src/types.ts`.
+2. In `src/domain.ts`, normalize the prefix and customer name consistently, then combine a prefix match with the existing predicates.
+3. In `src/main.ts`, connect a labelled input, reset pagination when it changes and clear it in the clear-all action.
+4. Add a test with customers `Café Central`, `Cafe del Puerto` and `Tienda Olivo`. Prefix `  CAFE  ` should match the first two; an additional status or priority selection should narrow them further. Confirm that the input records remain unchanged.
+5. Check that an empty prefix preserves existing results and clear-all restores all defaults.
 
-If an equivalent toggle already exists when you start, extend the search to a currently unsupported request field or improve its normalization. Write down the chosen behavior and a test that fails before the change. Complete a real modification rather than marking an existing feature as your exercise.
+Write down the chosen behavior and a test that fails before the change. This is a proposed learner exercise, not an existing feature or completed user change. An alternative is a small, documented change to the deadline policy with updated boundary tests.
 
 - [ ] I changed the filter, ran its test and can explain how it combines with other filters.
 
@@ -63,6 +63,7 @@ Trace the relevant code in `src/domain.ts`, `src/storage.ts` and `src/main.ts`, 
 3. What happens if saving to browser storage throws an error? Why should the entered form remain available?
 4. What happens if stored JSON is malformed? How does recovery avoid claiming a successful save?
 5. What survives a page reload, and why is that different from a shared API/database?
+6. Why does changing a request's priority recalculate its deadline from creation, and why can reopening make it overdue immediately?
 
 Use the existing storage-failure test as a reproducible example; identify the injected failure and expected behavior. Do not assume disabling JavaScript or reloading alone simulates a failed save.
 
@@ -82,4 +83,4 @@ If the exercises take longer, continue in another short session. A time estimate
 
 ## Practice evidence to retain
 
-Record your real changes, results and remaining questions in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md). Keep one before/after screenshot and the relevant diff or commit. After completing the exercises, describe the project features you actually understand and can demonstrate; the generated application and your hands-on practice are separate evidence.
+Record your changes, results and remaining questions in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md). Keep one before/after screenshot and the relevant diff or commit. The existing [change requests](CHANGE_REQUESTS.md) describe software changes implemented by Codex; record your optional practice separately when performed.

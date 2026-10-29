@@ -408,10 +408,12 @@ button.stat-card:hover {
 }
 
 .request-title {
+  max-width: 100%;
   color: #2c3e31;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .request-id {
@@ -442,8 +444,14 @@ button.stat-card:hover {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-width: 0;
   color: #56654f;
   font-size: 12px;
+
+  > span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 .customer-avatar {
@@ -530,7 +538,13 @@ button.stat-card:hover {
   }
 
   .customer-cell {
+    max-width: calc(100% - 75px);
     font-size: 11px;
+  }
+
+  .priority-label {
+    flex-shrink: 0;
+    margin-left: 10px;
   }
 
   .request-title {
@@ -931,11 +945,170 @@ textarea.form-control {
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+
+  .form-select {
+    padding-right: 30px;
+    padding-left: 10px;
+    background-position: right 10px center;
+  }
 }
 
 .request-category { display: block; margin-top: 3px; color: #66735b; font-size: 10px; }
-.date-cell { color: #66735b !important; font-size: 10px; white-space: nowrap; }
+.date-cell {
+  width: 132px;
+  min-width: 104px;
+  color: #66735b !important;
+  font-size: 10px;
+  white-space: normal;
+
+  > span:first-child {
+    display: block;
+    margin-bottom: 4px;
+  }
+}
 .priority-label > .bi { font-size: 12px; }
+
+.queue-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding: 14px 20px 3px;
+
+  .form-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    margin: 0;
+    padding-left: 0;
+  }
+
+  .form-check-input {
+    float: none;
+    width: 2.15em;
+    height: 1.1em;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .form-check-label {
+    padding: 5px 0;
+    color: #5c6c51;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .count-badge {
+    min-width: 21px;
+    height: 19px;
+    padding: 0 5px;
+    font-size: 9px;
+  }
+
+  #urgent-shortcut {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    padding: 4px 9px;
+    border-color: #dce4d5;
+    color: #677651;
+    font-size: 10px;
+    font-weight: 500;
+
+    > .bi { margin-right: 0; }
+
+    &:hover, &[aria-pressed='true'] {
+      border-color: $primary;
+      background: $primary;
+      color: #fff;
+
+      .count-badge {
+        border-color: rgba(#fff, 0.2);
+        background: rgba(#fff, 0.12);
+        color: #fff;
+      }
+    }
+  }
+
+  #reset-filters {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 4px 0;
+    color: #66735b;
+    font-size: 10px;
+    font-weight: 500;
+    text-decoration: none;
+
+    &:hover {
+      color: $primary;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+}
+
+.deadline-explanation {
+  margin: 0;
+  padding: 9px 20px 15px;
+  border-bottom: 1px solid var(--mesa-line);
+  color: #66735b;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.deadline-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  width: fit-content;
+  max-width: 100%;
+  color: #65765b;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+
+  > .bi {
+    flex-shrink: 0;
+    padding-top: 1px;
+    font-size: 10px;
+  }
+
+  &.overdue {
+    color: #984f2a;
+  }
+}
+
+.deadline-panel {
+  margin-top: 15px;
+  padding: 13px 14px;
+  border: 1px solid #e2e9da;
+  border-radius: 9px;
+  background: #f7faf3;
+
+  .deadline-label {
+    font-size: 11px;
+  }
+
+  > span:not(.deadline-label) {
+    display: block;
+    margin-top: 7px;
+    color: #66735b;
+    font-size: 11px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  > span:first-child:not(.deadline-label) {
+    margin-top: 0;
+  }
+}
 
 .pagination-controls {
   display: flex;
@@ -1173,6 +1346,16 @@ textarea.form-control {
     padding: 15px;
   }
 
+  .queue-options {
+    gap: 8px 18px;
+    padding-right: 15px;
+    padding-left: 15px;
+  }
+
+  .deadline-explanation {
+    padding: 10px 15px 14px;
+  }
+
   .search-control {
     flex-basis: 100%;
     max-width: none;
@@ -1277,6 +1460,25 @@ textarea.form-control {
 
   .demo-note {
     font-size: 9px;
+  }
+
+  .queue-options {
+    gap: 8px 15px;
+
+    .form-check {
+      flex: 1 1 100%;
+      min-height: 31px;
+    }
+
+    #urgent-shortcut, #reset-filters {
+      flex: 1 1 auto;
+      justify-content: center;
+      min-height: 33px;
+    }
+
+    #reset-filters {
+      margin-left: 0 !important;
+    }
   }
 
   .offcanvas-header, .offcanvas-body {

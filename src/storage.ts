@@ -20,7 +20,8 @@ function string(value: unknown, min: number, max: number): value is string {
 function date(value: unknown): value is string {
   if (typeof value !== 'string'
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
-    || !Number.isFinite(Date.parse(value))) return false;
+    || !Number.isFinite(Date.parse(value))
+    || Number(value.slice(11, 13)) > 23) return false;
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);
   const calendar = new Date(0);
   calendar.setUTCFullYear(year, month - 1, day);
