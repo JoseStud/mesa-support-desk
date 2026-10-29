@@ -17,7 +17,9 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL, normally <http://127.0.0.1:4173>. To serve the production build, use `npm run build`, then `npm run preview` on port 4174.
+Open the printed local URL, normally <http://127.0.0.1:4173>. The development server also listens on the LAN; on the current machine it is available at <http://192.168.1.6:4173>. To serve the production build, use `npm run build`, then `npm run preview` on port 4174.
+
+Browser data is tied to the origin: localhost and the LAN address have separate stored requests even on the same browser.
 
 On the current Codex workspace, Node is available in `/tmp/cartagena-node/bin`; add that directory to `PATH` when your shell cannot find `node`. The [local launcher](scripts/start-local.sh) handles this workspace fallback automatically.
 
